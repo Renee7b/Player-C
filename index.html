@@ -48,6 +48,7 @@
         button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .btn-secondary { background: linear-gradient(135deg, #374151 0%, #4b5563 100%); }
         .btn-danger { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); }
+        .btn-small { padding: 6px 12px; font-size: 12px; }
         .player-section {
             background: rgba(0, 0, 0, 0.4);
             padding: 20px;
@@ -71,7 +72,9 @@
             width: 100%;
             height: 100%;
         }
-        .video-title { font-size: 1.5em; margin-bottom: 10px; cursor: pointer; padding: 8px; }
+        .video-title { font-size: 1.5em; margin-bottom: 10px; padding: 8px; }
+        .playlist-controls { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; align-items: center; }
+        .playlist-info { color: #9ca3af; font-size: 14px; }
         textarea {
             width: 100%;
             min-height: 80px;
@@ -89,17 +92,26 @@
             padding: 20px;
             border-radius: 12px;
             border: 1px solid rgba(79, 70, 229, 0.2);
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .folder-item {
             margin: 5px 0;
             padding: 8px;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 6px;
-            cursor: pointer;
+            cursor: move;
             transition: all 0.2s;
+            position: relative;
         }
         .folder-item:hover { background: rgba(79, 70, 229, 0.2); }
         .folder-item.active { background: rgba(79, 70, 229, 0.3); border-left: 3px solid #4f46e5; }
+        .folder-item.drag-over { background: rgba(79, 70, 229, 0.5); border: 2px dashed #4f46e5; }
+        .folder-item.dragging { opacity: 0.5; }
+        .folder-header { display: flex; align-items: center; gap: 8px; }
+        .folder-name { flex: 1; cursor: pointer; }
+        .folder-actions { display: flex; gap: 5px; }
+        .folder-children { margin-left: 20px; margin-top: 5px; }
         .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
         .video-card {
             background: rgba(0, 0, 0, 0.3);
@@ -107,21 +119,35 @@
             overflow: hidden;
             border: 1px solid rgba(79, 70, 229, 0.2);
             transition: all 0.3s;
+            cursor: move;
         }
         .video-card:hover { transform: translateY(-5px); box-shadow: 0 8px 24px rgba(79, 70, 229, 0.3); }
+        .video-card.dragging { opacity: 0.5; }
         .video-thumbnail { width: 100%; height: 160px; object-fit: cover; background: #1a1a1a; cursor: pointer; }
         .video-card-body { padding: 15px; }
         .video-card-title {
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 8px;
+            min-height: 40px;
+        }
+        .video-folders {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+            min-height: 20px;
+        }
+        .video-notes {
+            font-size: 12px;
+            color: #d1d5db;
+            margin-bottom: 10px;
+            font-style: italic;
+            min-height: 20px;
+            max-height: 60px;
             overflow: hidden;
             text-overflow: ellipsis;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
         }
-        .video-card-actions { display: flex; gap: 5px; margin-top: 10px; }
+        .video-card-actions { display: flex; gap: 5px; }
         .video-card-actions button { flex: 1; padding: 8px; font-size: 12px; }
         .modal {
             display: none;
@@ -140,8 +166,13 @@
             border-radius: 12px;
             max-width: 500px;
             width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        .folder-select { margin-bottom: 10px; }
+        .folder-select label { display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; cursor: pointer; }
+        .folder-select input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
         @media (max-width: 768px) {
             .library-section { grid-template-columns: 1fr; }
             .video-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
@@ -164,13 +195,20 @@
         <div class="player-section" id="playerSection" style="display: none;">
             <div class="video-wrapper" id="videoWrapper"></div>
             <div class="video-title" id="videoTitle"></div>
-            <textarea id="videoNotes" placeholder="Add notes..."></textarea>
+            <textarea id="videoNotes" placeholder="Add notes..." onchange="saveCurrentVideoNotes()"></textarea>
+            <div class="playlist-controls">
+                <button onclick="previousVideo()">⏮ Previous</button>
+                <button onclick="nextVideo()">Next ⏭</button>
+                <button onclick="stopPlaylist()" class="btn-danger">⏹ Stop</button>
+                <button onclick="toggleShuffle()" class="btn-secondary" id="shuffleBtn">🔀 Shuffle: Off</button>
+                <span class="playlist-info" id="playlistInfo"></span>
+            </div>
         </div>
 
         <div class="library-section">
             <div class="sidebar">
                 <h2>Folders</h2>
-                <input type="text" id="searchInput" placeholder="Search..." style="width: 100%; margin: 15px 0;">
+                <input type="text" id="searchInput" placeholder="Search..." style="width: 100%; margin: 15px 0;" oninput="renderVideos()">
                 <div id="folderTree"></div>
             </div>
             <div id="videoGrid" class="video-grid"></div>
@@ -179,11 +217,25 @@
 
     <div class="modal" id="folderModal">
         <div class="modal-content">
-            <h2>Create Folder</h2>
+            <h2 id="folderModalTitle">Create Folder</h2>
             <input type="text" id="folderNameInput" placeholder="Folder name" style="width: 100%; margin-bottom: 15px;">
+            <select id="parentFolderSelect" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.05); color: #e0e0e0; border: 2px solid rgba(79,70,229,0.3); border-radius: 8px;">
+                <option value="">Root (No parent)</option>
+            </select>
             <div class="modal-actions">
                 <button onclick="closeModal()" class="btn-secondary">Cancel</button>
-                <button onclick="saveFolderModal()">Create</button>
+                <button onclick="saveFolderModal()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="videoFoldersModal">
+        <div class="modal-content">
+            <h2>Manage Folders</h2>
+            <div id="videoFoldersList"></div>
+            <div class="modal-actions">
+                <button onclick="closeModal()" class="btn-secondary">Close</button>
+                <button onclick="saveVideoFolders()">Save</button>
             </div>
         </div>
     </div>
@@ -191,20 +243,32 @@
     <input type="file" id="importInput" accept=".json" style="display: none;" onchange="handleImport(event)">
 
     <script>
-        let data = { videos: [], folders: [], recentVideos: [] };
+        let data = { videos: [], folders: [] };
         let currentFolder = null;
+        let currentVideo = null;
+        let playlist = [];
+        let playlistIndex = 0;
+        let shuffleMode = false;
+        let editingFolderId = null;
 
         function init() {
             loadData();
             createSmartFolders();
             renderFolders();
             renderVideos();
+            setupDragAndDrop();
         }
 
         function loadData() {
             const saved = localStorage.getItem('videoLibrary');
             if (saved) {
                 data = JSON.parse(saved);
+                // Ensure folders array exists
+                if (!data.folders) data.folders = [];
+                // Ensure each video has folders array
+                data.videos.forEach(v => {
+                    if (!v.folders) v.folders = [];
+                });
             }
         }
 
@@ -213,14 +277,15 @@
         }
 
         function createSmartFolders() {
-            const smartFolders = ['All Videos', 'Recently Added', 'Recently Played'];
-            smartFolders.forEach(name => {
-                if (!data.folders.find(f => f.name === name)) {
-                    data.folders.unshift({
-                        id: 'smart-' + name.toLowerCase().replace(/\s/g, '-'),
-                        name: name,
-                        smart: true
-                    });
+            const smartFolders = [
+                { id: 'smart-all', name: 'All Videos', smart: true },
+                { id: 'smart-recent-added', name: 'Recently Added', smart: true },
+                { id: 'smart-recent-played', name: 'Recently Played', smart: true }
+            ];
+            
+            smartFolders.forEach(sf => {
+                if (!data.folders.find(f => f.id === sf.id)) {
+                    data.folders.unshift(sf);
                 }
             });
         }
@@ -231,14 +296,11 @@
             const dailymotionRegex = /dailymotion\.com\/video\/([^_]+)/;
 
             if (youtubeRegex.test(url)) {
-                const match = url.match(youtubeRegex);
-                return { type: 'youtube', id: match[1] };
+                return { type: 'youtube', id: url.match(youtubeRegex)[1] };
             } else if (vimeoRegex.test(url)) {
-                const match = url.match(vimeoRegex);
-                return { type: 'vimeo', id: match[1] };
+                return { type: 'vimeo', id: url.match(vimeoRegex)[1] };
             } else if (dailymotionRegex.test(url)) {
-                const match = url.match(dailymotionRegex);
-                return { type: 'dailymotion', id: match[1] };
+                return { type: 'dailymotion', id: url.match(dailymotionRegex)[1] };
             } else if (url.match(/\.(mp4|webm|ogg)$/i)) {
                 return { type: 'direct', url: url };
             }
@@ -266,9 +328,10 @@
                 type: parsed.type,
                 videoId: parsed.id || parsed.url,
                 title: parsed.type.charAt(0).toUpperCase() + parsed.type.slice(1) + ' Video',
-                thumbnail: getDefaultThumbnail(parsed),
+                thumbnail: parsed.type === 'youtube' ? `https://img.youtube.com/vi/${parsed.id}/hqdefault.jpg` : 
+                          'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="480" height="270"%3E%3Crect fill="%231a1a1a" width="480" height="270"/%3E%3Ctext fill="%234f46e5" font-size="24" x="50%25" y="50%25" text-anchor="middle"%3EVideo%3C/text%3E%3C/svg%3E',
                 notes: '',
-                folders: [],
+                folders: currentFolder && !currentFolder.startsWith('smart-') ? [currentFolder] : [],
                 dateAdded: new Date().toISOString(),
                 lastPlayed: null
             };
@@ -280,22 +343,12 @@
             alert('Video added successfully!');
         }
 
-        function getDefaultThumbnail(parsed) {
-            if (parsed.type === 'youtube') {
-                return `https://img.youtube.com/vi/${parsed.id}/hqdefault.jpg`;
-            }
-            return 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="480" height="270"%3E%3Crect fill="%231a1a1a" width="480" height="270"/%3E%3Ctext fill="%234f46e5" font-size="24" x="50%25" y="50%25" text-anchor="middle"%3EVideo%3C/text%3E%3C/svg%3E';
-        }
-
-        function playVideo(videoId) {
+        function playVideo(videoId, fromPlaylist = false) {
             const video = data.videos.find(v => v.id === videoId);
             if (!video) return;
 
             video.lastPlayed = new Date().toISOString();
-            if (!data.recentVideos.includes(videoId)) {
-                data.recentVideos.unshift(videoId);
-                if (data.recentVideos.length > 20) data.recentVideos.pop();
-            }
+            currentVideo = video;
             saveData();
 
             document.getElementById('playerSection').style.display = 'block';
@@ -308,30 +361,181 @@
             } else if (video.type === 'dailymotion') {
                 wrapper.innerHTML = `<iframe src="https://www.dailymotion.com/embed/video/${video.videoId}?autoplay=1" allow="autoplay" allowfullscreen></iframe>`;
             } else {
-                wrapper.innerHTML = `<video src="${video.url}" controls autoplay></video>`;
+                wrapper.innerHTML = `<video src="${video.url}" controls autoplay onended="nextVideo()"></video>`;
             }
 
             document.getElementById('videoTitle').textContent = video.title;
-            document.getElementById('videoNotes').value = video.notes;
-            wrapper.scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('videoNotes').value = video.notes || '';
+            
+            if (fromPlaylist) {
+                updatePlaylistInfo();
+            }
+            
+            document.getElementById('playerSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function saveCurrentVideoNotes() {
+            if (currentVideo) {
+                currentVideo.notes = document.getElementById('videoNotes').value;
+                saveData();
+                renderVideos();
+            }
         }
 
         function deleteVideo(videoId) {
             if (!confirm('Delete this video?')) return;
             data.videos = data.videos.filter(v => v.id !== videoId);
-            data.recentVideos = data.recentVideos.filter(id => id !== videoId);
             saveData();
             renderVideos();
         }
 
+        function openVideoFolders(videoId) {
+            const video = data.videos.find(v => v.id === videoId);
+            if (!video) return;
+
+            currentVideo = video;
+            const modal = document.getElementById('videoFoldersModal');
+            const list = document.getElementById('videoFoldersList');
+            
+            list.innerHTML = data.folders
+                .filter(f => !f.smart)
+                .map(folder => `
+                    <div class="folder-select">
+                        <label>
+                            <input type="checkbox" value="${folder.id}" ${video.folders.includes(folder.id) ? 'checked' : ''}>
+                            ${folder.name}
+                        </label>
+                    </div>
+                `).join('');
+            
+            modal.classList.add('show');
+        }
+
+        function saveVideoFolders() {
+            if (!currentVideo) return;
+            
+            const checkboxes = document.querySelectorAll('#videoFoldersList input[type="checkbox"]');
+            currentVideo.folders = Array.from(checkboxes)
+                .filter(cb => cb.checked)
+                .map(cb => cb.value);
+            
+            saveData();
+            renderVideos();
+            closeModal();
+        }
+
+        function playFolder(folderId) {
+            let videos = getVideosInFolder(folderId);
+            
+            if (videos.length === 0) {
+                alert('No videos in this folder');
+                return;
+            }
+
+            playlist = shuffleMode ? shuffleArray([...videos]) : videos;
+            playlistIndex = 0;
+            playVideo(playlist[0].id, true);
+        }
+
+        function previousVideo() {
+            if (playlist.length === 0) return;
+            playlistIndex = (playlistIndex - 1 + playlist.length) % playlist.length;
+            playVideo(playlist[playlistIndex].id, true);
+        }
+
+        function nextVideo() {
+            if (playlist.length === 0) return;
+            playlistIndex = (playlistIndex + 1) % playlist.length;
+            playVideo(playlist[playlistIndex].id, true);
+        }
+
+        function stopPlaylist() {
+            playlist = [];
+            playlistIndex = 0;
+            document.getElementById('playerSection').style.display = 'none';
+            document.getElementById('playlistInfo').textContent = '';
+        }
+
+        function toggleShuffle() {
+            shuffleMode = !shuffleMode;
+            document.getElementById('shuffleBtn').textContent = shuffleMode ? '🔀 Shuffle: On' : '🔀 Shuffle: Off';
+            
+            if (playlist.length > 0 && shuffleMode) {
+                const current = playlist[playlistIndex];
+                playlist = shuffleArray([...playlist]);
+                playlistIndex = playlist.findIndex(v => v.id === current.id);
+            }
+        }
+
+        function updatePlaylistInfo() {
+            if (playlist.length > 0) {
+                document.getElementById('playlistInfo').textContent = `Playing ${playlistIndex + 1} of ${playlist.length}`;
+            }
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function getVideosInFolder(folderId) {
+            if (folderId === 'smart-all') {
+                return data.videos;
+            } else if (folderId === 'smart-recent-added') {
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                return data.videos.filter(v => new Date(v.dateAdded) > sevenDaysAgo);
+            } else if (folderId === 'smart-recent-played') {
+                return data.videos.filter(v => v.lastPlayed).sort((a, b) => new Date(b.lastPlayed) - new Date(a.lastPlayed)).slice(0, 20);
+            } else {
+                return data.videos.filter(v => v.folders && v.folders.includes(folderId));
+            }
+        }
+
         function renderFolders() {
             const tree = document.getElementById('folderTree');
-            tree.innerHTML = data.folders.map(folder => `
-                <div class="folder-item ${currentFolder === folder.id ? 'active' : ''}" 
-                     onclick="selectFolder('${folder.id}')">
-                    ${folder.name}
-                </div>
-            `).join('');
+            
+            const renderFolder = (folder, level = 0) => {
+                const children = data.folders.filter(f => f.parent === folder.id && !f.smart);
+                const hasChildren = children.length > 0;
+                const indent = level * 20;
+                const videoCount = getVideosInFolder(folder.id).length;
+                
+                let html = `
+                    <div class="folder-item ${currentFolder === folder.id ? 'active' : ''}" 
+                         draggable="${!folder.smart}" 
+                         data-folder-id="${folder.id}"
+                         style="margin-left: ${indent}px">
+                        <div class="folder-header">
+                            <span class="folder-name" onclick="selectFolder('${folder.id}')">
+                                ${hasChildren ? '📁' : '📂'} ${folder.name} (${videoCount})
+                            </span>
+                            ${!folder.smart ? `
+                                <div class="folder-actions">
+                                    <button class="btn-secondary btn-small" onclick="event.stopPropagation(); playFolder('${folder.id}')">▶</button>
+                                    <button class="btn-secondary btn-small" onclick="event.stopPropagation(); editFolder('${folder.id}')">✏️</button>
+                                    <button class="btn-danger btn-small" onclick="event.stopPropagation(); deleteFolder('${folder.id}')">🗑️</button>
+                                </div>
+                            ` : `
+                                <div class="folder-actions">
+                                    <button class="btn-secondary btn-small" onclick="event.stopPropagation(); playFolder('${folder.id}')">▶</button>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+                
+                children.forEach(child => {
+                    html += renderFolder(child, level + 1);
+                });
+                
+                return html;
+            };
+            
+            const rootFolders = data.folders.filter(f => !f.parent || f.smart);
+            tree.innerHTML = rootFolders.map(f => renderFolder(f)).join('');
         }
 
         function selectFolder(folderId) {
@@ -341,100 +545,137 @@
         }
 
         function renderVideos() {
-            let videos = data.videos;
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            let videos = currentFolder ? getVideosInFolder(currentFolder) : data.videos;
             
-            if (currentFolder === 'smart-all-videos') {
-                videos = data.videos;
-            } else if (currentFolder === 'smart-recently-added') {
-                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-                videos = data.videos.filter(v => new Date(v.dateAdded) > sevenDaysAgo);
-            } else if (currentFolder === 'smart-recently-played') {
-                videos = data.recentVideos.map(id => data.videos.find(v => v.id === id)).filter(Boolean);
-            } else if (currentFolder) {
-                videos = data.videos.filter(v => v.folders.includes(currentFolder));
+            if (searchTerm) {
+                videos = videos.filter(v => 
+                    v.title.toLowerCase().includes(searchTerm) || 
+                    (v.notes && v.notes.toLowerCase().includes(searchTerm))
+                );
             }
 
             const grid = document.getElementById('videoGrid');
-            grid.innerHTML = videos.map(video => `
-                <div class="video-card">
-                    <img src="${video.thumbnail}" alt="${video.title}" class="video-thumbnail" onclick="playVideo('${video.id}')">
-                    <div class="video-card-body">
-                        <div class="video-card-title">${video.title}</div>
-                        <div class="video-card-actions">
-                            <button onclick="playVideo('${video.id}')">Play</button>
-                            <button onclick="deleteVideo('${video.id}')" class="btn-danger">Delete</button>
+            grid.innerHTML = videos.map(video => {
+                const folderNames = video.folders
+                    .map(fId => data.folders.find(f => f.id === fId))
+                    .filter(Boolean)
+                    .map(f => f.name)
+                    .join(', ');
+                
+                return `
+                    <div class="video-card" draggable="true" data-video-id="${video.id}">
+                        <img src="${video.thumbnail}" alt="${video.title}" class="video-thumbnail" onclick="playVideo('${video.id}')">
+                        <div class="video-card-body">
+                            <div class="video-card-title">${video.title}</div>
+                            <div class="video-folders">📁 ${folderNames || 'No folder'}</div>
+                            <div class="video-notes">${video.notes || ''}</div>
+                            <div class="video-card-actions">
+                                <button onclick="playVideo('${video.id}')">Play</button>
+                                <button onclick="openVideoFolders('${video.id}')" class="btn-secondary">Folders</button>
+                                <button onclick="deleteVideo('${video.id}')" class="btn-danger">Delete</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function createFolder() {
+            editingFolderId = null;
+            document.getElementById('folderModalTitle').textContent = 'Create Folder';
+            document.getElementById('folderNameInput').value = '';
+            
+            const select = document.getElementById('parentFolderSelect');
+            select.innerHTML = '<option value="">Root (No parent)</option>';
+            data.folders.filter(f => !f.smart).forEach(f => {
+                select.innerHTML += `<option value="${f.id}">${f.name}</option>`;
+            });
+            
             document.getElementById('folderModal').classList.add('show');
         }
 
+        function editFolder(folderId) {
+            const folder = data.folders.find(f => f.id === folderId);
+            if (!folder) return;
+            
+            editingFolderId = folderId;
+            document.getElementById('folderModalTitle').textContent = 'Edit Folder';
+            document.getElementById('folderNameInput').value = folder.name;
+            
+            const select = document.getElementById('parentFolderSelect');
+            select.innerHTML = '<option value="">Root (No parent)</option>';
+            data.folders.filter(f => !f.smart && f.id !== folderId).forEach(f => {
+                select.innerHTML += `<option value="${f.id}" ${folder.parent === f.id ? 'selected' : ''}>${f.name}</option>`;
+            });
+            
+            document.getElementById('folderModal').classList.add('show');
+        }
+
+        function deleteFolder(folderId) {
+            if (!confirm('Delete this folder? Videos will not be deleted.')) return;
+            
+            // Remove folder from all videos
+            data.videos.forEach(v => {
+                if (v.folders) {
+                    v.folders = v.folders.filter(fId => fId !== folderId);
+                }
+            });
+            
+            // Remove folder and its children
+            const removeFolder = (id) => {
+                const children = data.folders.filter(f => f.parent === id);
+                children.forEach(child => removeFolder(child.id));
+                data.folders = data.folders.filter(f => f.id !== id);
+            };
+            
+            removeFolder(folderId);
+            saveData();
+            renderFolders();
+            renderVideos();
+        }
+
         function closeModal() {
-            document.getElementById('folderModal').classList.remove('show');
+            document.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
         }
 
         function saveFolderModal() {
             const name = document.getElementById('folderNameInput').value.trim();
             if (!name) return;
             
-            data.folders.push({
-                id: 'folder-' + Date.now(),
-                name: name,
-                smart: false
-            });
+            const parent = document.getElementById('parentFolderSelect').value || null;
+            
+            if (editingFolderId) {
+                const folder = data.folders.find(f => f.id === editingFolderId);
+                if (folder) {
+                    folder.name = name;
+                    folder.parent = parent;
+                }
+            } else {
+                data.folders.push({
+                    id: 'folder-' + Date.now(),
+                    name: name,
+                    parent: parent,
+                    smart: false
+                });
+            }
+            
             saveData();
             renderFolders();
             closeModal();
-            document.getElementById('folderNameInput').value = '';
         }
 
-        function exportData() {
-            const dataStr = JSON.stringify(data, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'video-library-' + new Date().toISOString().split('T')[0] + '.json';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-
-        function handleImport(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const imported = JSON.parse(e.target.result);
-                    
-                    // Support different formats
-                    if (imported.videos && Array.isArray(imported.videos)) {
-                        data = imported;
-                    } else if (Array.isArray(imported)) {
-                        // Handle array of videos
-                        data.videos = imported;
-                    }
-                    
-                    saveData();
-                    createSmartFolders();
-                    renderFolders();
-                    renderVideos();
-                    alert('Library imported successfully!');
-                } catch (error) {
-                    alert('Error importing file: ' + error.message);
+        function setupDragAndDrop() {
+            document.addEventListener('dragstart', (e) => {
+                if (e.target.classList.contains('video-card')) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('video-id', e.target.dataset.videoId);
+                    e.target.classList.add('dragging');
+                } else if (e.target.classList.contains('folder-item')) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('folder-id', e.target.dataset.folderId);
+                    e.target.classList.add('dragging');
                 }
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        }
+            });
 
-        // Initialize on load
-        window.addEventListener('DOMContentLoaded', init);
-    </script>
-</body>
-</html>
+            document.addEventListener('dragend', (e) =>
