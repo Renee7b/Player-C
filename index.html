@@ -94,28 +94,48 @@
         }
         .folder-item {
             margin: 5px 0;
-            padding: 10px;
             background: rgba(255, 255, 255, 0.05);
             border-radius: 6px;
-            cursor: pointer;
             transition: all 0.2s;
         }
         .folder-item:hover { background: rgba(79, 70, 229, 0.2); }
         .folder-item.active { background: rgba(79, 70, 229, 0.3); border-left: 3px solid #4f46e5; }
         .folder-item.drag-over { background: rgba(79, 70, 229, 0.5); border: 2px dashed #4f46e5; }
-        .folder-header { display: flex; align-items: center; gap: 8px; }
-        .folder-name { flex: 1; }
+        .folder-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            cursor: pointer;
+        }
+        .folder-toggle {
+            width: 20px;
+            text-align: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .folder-name { flex: 1; cursor: pointer; }
         .folder-actions { display: flex; gap: 5px; }
-        .folder-children { margin-left: 20px; margin-top: 5px; }
-        .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .folder-children { 
+            margin-left: 20px;
+            display: none;
+        }
+        .folder-children.expanded { display: block; }
+        .video-grid { 
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
         .video-card {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
             overflow: hidden;
             border: 1px solid rgba(79, 70, 229, 0.2);
             transition: all 0.3s;
+            cursor: move;
         }
         .video-card:hover { transform: translateY(-5px); box-shadow: 0 8px 24px rgba(79, 70, 229, 0.3); }
+        .video-card.dragging { opacity: 0.3; }
         .video-thumbnail { width: 100%; height: 160px; object-fit: cover; background: #1a1a1a; cursor: pointer; }
         .video-card-body { padding: 15px; }
         .video-card-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; min-height: 40px; }
@@ -128,8 +148,18 @@
             max-height: 60px;
             overflow: hidden;
         }
-        .video-card-actions { display: flex; gap: 5px; }
-        .video-card-actions button { flex: 1; padding: 8px; font-size: 12px; }
+        .video-card-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+        .video-card-actions button { flex: 1; padding: 8px; font-size: 12px; min-width: 60px; }
+        .reorder-controls {
+            display: flex;
+            gap: 3px;
+            margin-top: 5px;
+        }
+        .reorder-controls button {
+            padding: 4px 8px;
+            font-size: 11px;
+            flex: 1;
+        }
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); }
         .modal.show { display: flex; align-items: center; justify-content: center; }
         .modal-content {
@@ -144,6 +174,11 @@
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
         .folder-select { margin-bottom: 10px; }
         .folder-select label { display: flex; align-items: center; gap: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; cursor: pointer; }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #9ca3af;
+        }
         @media (max-width: 768px) {
             .library-section { grid-template-columns: 1fr; }
         }
@@ -181,7 +216,12 @@
                 <input type="text" id="searchInput" placeholder="Search..." style="width: 100%; margin: 15px 0; padding: 10px; background: rgba(255,255,255,0.05); border: 2px solid rgba(79,70,229,0.3); border-radius: 8px; color: #e0e0e0;" oninput="renderVideos()">
                 <div id="folderTree"></div>
             </div>
-            <div id="videoGrid" class="video-grid"></div>
+            <div id="videoGrid" class="video-grid">
+                <div class="empty-state">
+                    <h3>Welcome to Your Video Library</h3>
+                    <p>Select a folder to view videos or add a new video to get started</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -213,8 +253,8 @@
     <input type="file" id="importInput" accept=".json" style="display: none;" onchange="handleImport(event)">
 
     <script>
-        let data = { videos: [], folders: [] };
-        let currentFolder = 'all';
+        let data = { videos: [], folders: [], folderStates: {} };
+        let currentFolder = 'dashboard';
         let currentVideo = null;
         let playlist = [];
         let playlistIdx = 0;
@@ -227,17 +267,17 @@
             if (saved) {
                 try {
                     data = JSON.parse(saved);
-                    // Ensure arrays exist
                     if (!data.videos) data.videos = [];
                     if (!data.folders) data.folders = [];
-                    // Ensure each video has folders array
+                    if (!data.folderStates) data.folderStates = {};
                     data.videos.forEach(v => {
                         if (!v.folders) v.folders = [];
                         if (!Array.isArray(v.folders)) v.folders = [];
+                        if (!v.sortOrder) v.sortOrder = 0;
                     });
                 } catch (e) {
                     console.error('Error loading data:', e);
-                    data = { videos: [], folders: [] };
+                    data = { videos: [], folders: [], folderStates: {} };
                 }
             }
             createSmartFolders();
@@ -252,6 +292,7 @@
 
         function createSmartFolders() {
             const smart = [
+                { id: 'dashboard', name: '🏠 Dashboard', smart: true },
                 { id: 'all', name: 'All Videos', smart: true },
                 { id: 'recent-added', name: 'Recently Added', smart: true },
                 { id: 'recent-played', name: 'Recently Played', smart: true }
@@ -289,9 +330,10 @@
                 thumbnail: p.type === 'youtube' ? `https://img.youtube.com/vi/${p.id}/hqdefault.jpg` : 
                           'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="480" height="270"%3E%3Crect fill="%231a1a1a" width="480" height="270"/%3E%3Ctext fill="%234f46e5" font-size="20" x="50%25" y="50%25" text-anchor="middle"%3EVideo%3C/text%3E%3C/svg%3E',
                 notes: '',
-                folders: currentFolder && !['all','recent-added','recent-played'].includes(currentFolder) ? [currentFolder] : [],
+                folders: currentFolder && !['dashboard','all','recent-added','recent-played'].includes(currentFolder) ? [currentFolder] : [],
                 dateAdded: new Date().toISOString(),
-                lastPlayed: null
+                lastPlayed: null,
+                sortOrder: data.videos.length
             };
             data.videos.push(v);
             save();
@@ -309,8 +351,23 @@
 
             document.getElementById('playerSection').style.display = 'block';
             const w = document.getElementById('videoWrapper');
+            
+            const onVideoEnd = () => {
+                if (playlist.length > 0) {
+                    setTimeout(() => nextVideo(), 1000);
+                }
+            };
+
             if (v.type === 'youtube') {
-                w.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1" allow="autoplay" allowfullscreen></iframe>`;
+                w.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&enablejsapi=1" allow="autoplay" allowfullscreen id="ytPlayer"></iframe>`;
+                // YouTube API for auto-advance
+                if (window.YT && fromPlaylist) {
+                    setTimeout(() => {
+                        const player = new YT.Player('ytPlayer', {
+                            events: { 'onStateChange': (e) => { if (e.data === YT.PlayerState.ENDED) onVideoEnd(); }}
+                        });
+                    }, 1000);
+                }
             } else if (v.type === 'vimeo') {
                 w.innerHTML = `<iframe src="https://player.vimeo.com/video/${v.videoId}?autoplay=1" allow="autoplay" allowfullscreen></iframe>`;
             } else if (v.type === 'dailymotion') {
@@ -318,6 +375,7 @@
             } else {
                 w.innerHTML = `<video src="${v.url}" controls autoplay onended="nextVideo()"></video>`;
             }
+            
             document.getElementById('videoTitle').textContent = v.title;
             document.getElementById('videoNotes').value = v.notes || '';
             if (fromPlaylist) updatePlaylistInfo();
@@ -335,6 +393,27 @@
         function deleteVideo(id) {
             if (!confirm('Delete?')) return;
             data.videos = data.videos.filter(v => v.id !== id);
+            save();
+            renderVideos();
+        }
+
+        function moveVideo(id, direction) {
+            const vids = getVideos(currentFolder);
+            const idx = vids.findIndex(v => v.id === id);
+            if (idx === -1) return;
+
+            if (direction === 'first') {
+                vids.forEach((v, i) => v.sortOrder = i === idx ? -1 : i);
+            } else if (direction === 'up' && idx > 0) {
+                [vids[idx].sortOrder, vids[idx-1].sortOrder] = [vids[idx-1].sortOrder, vids[idx].sortOrder];
+            } else if (direction === 'down' && idx < vids.length - 1) {
+                [vids[idx].sortOrder, vids[idx+1].sortOrder] = [vids[idx+1].sortOrder, vids[idx].sortOrder];
+            } else if (direction === 'last') {
+                vids.forEach((v, i) => v.sortOrder = i === idx ? 9999 : i);
+            }
+            
+            vids.sort((a, b) => a.sortOrder - b.sortOrder);
+            vids.forEach((v, i) => v.sortOrder = i);
             save();
             renderVideos();
         }
@@ -410,15 +489,22 @@
         }
 
         function getVideos(fid) {
-            if (fid === 'all') return data.videos;
+            if (fid === 'dashboard') return [];
+            if (fid === 'all') return data.videos.sort((a, b) => a.sortOrder - b.sortOrder);
             if (fid === 'recent-added') {
                 const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-                return data.videos.filter(v => new Date(v.dateAdded) > week);
+                return data.videos.filter(v => new Date(v.dateAdded) > week).sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
             }
             if (fid === 'recent-played') {
                 return data.videos.filter(v => v.lastPlayed).sort((a,b) => new Date(b.lastPlayed) - new Date(a.lastPlayed)).slice(0, 20);
             }
-            return data.videos.filter(v => v.folders && v.folders.includes(fid));
+            return data.videos.filter(v => v.folders && v.folders.includes(fid)).sort((a, b) => a.sortOrder - b.sortOrder);
+        }
+
+        function toggleFolder(id) {
+            data.folderStates[id] = !data.folderStates[id];
+            save();
+            renderFolders();
         }
 
         function renderFolders() {
@@ -426,14 +512,16 @@
                 const children = data.folders.filter(x => x.parent === f.id && !x.smart);
                 const cnt = getVideos(f.id).length;
                 const indent = lvl * 20;
+                const isExpanded = data.folderStates[f.id];
+                const hasChildren = children.length > 0;
+                
                 let html = `
                     <div class="folder-item ${currentFolder === f.id ? 'active' : ''}" 
-                         draggable="${!f.smart}" 
                          data-folder-id="${f.id}"
-                         style="margin-left: ${indent}px"
-                         onclick="selectFolder('${f.id}')">
-                        <div class="folder-header" onclick="event.stopPropagation();">
-                            <span class="folder-name" onclick="selectFolder('${f.id}')" style="cursor: pointer;">
+                         style="margin-left: ${indent}px">
+                        <div class="folder-header">
+                            ${hasChildren ? `<span class="folder-toggle" onclick="event.stopPropagation(); toggleFolder('${f.id}')">${isExpanded ? '▼' : '▶'}</span>` : '<span class="folder-toggle"></span>'}
+                            <span class="folder-name" onclick="selectFolder('${f.id}')">
                                 📁 ${f.name} (${cnt})
                             </span>
                             <div class="folder-actions" onclick="event.stopPropagation();">
@@ -444,9 +532,15 @@
                                 ` : ''}
                             </div>
                         </div>
+                        ${hasChildren ? `<div class="folder-children ${isExpanded ? 'expanded' : ''}"></div>` : ''}
                     </div>
                 `;
-                children.forEach(c => { html += renderF(c, lvl + 1); });
+                
+                if (hasChildren && isExpanded) {
+                    const childrenHtml = children.map(c => renderF(c, lvl + 1)).join('');
+                    html = html.replace('</div></div>', `</div>${childrenHtml}</div></div>`);
+                }
+                
                 return html;
             };
             const tree = document.getElementById('folderTree');
@@ -466,6 +560,12 @@
                 vids = vids.filter(v => v.title.toLowerCase().includes(search) || (v.notes && v.notes.toLowerCase().includes(search)));
             }
             const grid = document.getElementById('videoGrid');
+            
+            if (currentFolder === 'dashboard' || vids.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><h3>Welcome to Your Video Library</h3><p>Select a folder to view videos</p></div>';
+                return;
+            }
+            
             grid.innerHTML = vids.map(v => {
                 const fnames = v.folders.map(fid => data.folders.find(f => f.id === fid)).filter(Boolean).map(f => f.name).join(', ');
                 return `
@@ -479,6 +579,12 @@
                                 <button onclick="playVideo('${v.id}')">Play</button>
                                 <button onclick="openVideoFolders('${v.id}')" class="btn-secondary">Folders</button>
                                 <button onclick="deleteVideo('${v.id}')" class="btn-danger">Del</button>
+                            </div>
+                            <div class="reorder-controls">
+                                <button onclick="moveVideo('${v.id}', 'first')" class="btn-secondary">⏮ First</button>
+                                <button onclick="moveVideo('${v.id}', 'up')" class="btn-secondary">↑</button>
+                                <button onclick="moveVideo('${v.id}', 'down')" class="btn-secondary">↓</button>
+                                <button onclick="moveVideo('${v.id}', 'last')" class="btn-secondary">Last ⏭</button>
                             </div>
                         </div>
                     </div>
@@ -570,9 +676,7 @@
                     let importedFolders = 0;
                     let importedVideos = 0;
                     
-                    // Handle folder format with id/parentId structure
                     if (imported.folders && Array.isArray(imported.folders)) {
-                        // Convert old format to new format
                         data.folders = imported.folders
                             .filter(f => !f.isSeparator)
                             .map(f => {
@@ -587,13 +691,10 @@
                             });
                     }
                     
-                    // Handle videos
                     if (imported.videos && Array.isArray(imported.videos)) {
                         data.videos = imported.videos.map(v => {
-                            // Handle folders array
                             let folders = [];
                             if (v.folders && Array.isArray(v.folders)) {
-                                // Keep folders as-is if already in correct format
                                 folders = v.folders.map(fid => {
                                     if (typeof fid === 'string' && fid.startsWith('f-')) {
                                         return fid;
@@ -603,7 +704,6 @@
                                     return fid;
                                 });
                             } else if (v.folderId) {
-                                // Convert single folderId to array
                                 const fid = v.folderId.toString().startsWith('f-') ? v.folderId.toString() : 'f-' + v.folderId;
                                 folders = [fid];
                             }
@@ -619,11 +719,11 @@
                                 notes: v.notes || v.description || '',
                                 folders: folders,
                                 dateAdded: v.dateAdded || v.createdAt || new Date().toISOString(),
-                                lastPlayed: v.lastPlayed || v.lastWatched || null
+                                lastPlayed: v.lastPlayed || v.lastWatched || null,
+                                sortOrder: v.sortOrder || 0
                             };
                         });
                     } else if (Array.isArray(imported)) {
-                        // Handle array of videos
                         data.videos = imported.map(v => {
                             importedVideos++;
                             return {
@@ -636,24 +736,19 @@
                                 notes: v.notes || '',
                                 folders: v.folders || [],
                                 dateAdded: v.dateAdded || new Date().toISOString(),
-                                lastPlayed: null
+                                lastPlayed: null,
+                                sortOrder: 0
                             };
                         });
                     }
                     
-                    console.log('Import complete:', {
-                        folders: data.folders,
-                        videos: data.videos,
-                        folderCount: importedFolders,
-                        videoCount: importedVideos
-                    });
-                    
+                    data.folderStates = {};
                     save();
                     createSmartFolders();
                     renderFolders();
                     renderVideos();
                     
-                    alert(`Import successful!\n${importedVideos} videos\n${importedFolders} folders\n\nClick on a folder in the sidebar to see its videos.`);
+                    alert(`Import successful!\n${importedVideos} videos\n${importedFolders} folders\n\nAll folders start collapsed. Click folder name or arrow to expand.`);
                 } catch (err) {
                     console.error('Import error:', err);
                     alert('Import failed: ' + err.message);
@@ -670,28 +765,37 @@
             document.addEventListener('dragstart', e => {
                 if (e.target.classList.contains('video-card')) {
                     draggedVideo = e.target.dataset.videoId;
-                    e.target.style.opacity = '0.5';
-                } else if (e.target.classList.contains('folder-item')) {
-                    draggedFolder = e.target.dataset.folderId;
-                    e.target.style.opacity = '0.5';
+                    e.target.classList.add('dragging');
+                } else if (e.target.closest('.folder-item')) {
+                    const folderItem = e.target.closest('.folder-item');
+                    draggedFolder = folderItem.dataset.folderId;
+                    folderItem.classList.add('dragging');
                 }
             });
 
             document.addEventListener('dragend', e => {
-                e.target.style.opacity = '';
+                if (e.target.classList.contains('video-card')) {
+                    e.target.classList.remove('dragging');
+                } else if (e.target.closest('.folder-item')) {
+                    e.target.closest('.folder-item').classList.remove('dragging');
+                }
                 document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+                draggedVideo = null;
+                draggedFolder = null;
             });
 
             document.addEventListener('dragover', e => {
                 e.preventDefault();
-                if (e.target.closest('.folder-item')) {
-                    e.target.closest('.folder-item').classList.add('drag-over');
+                const folderItem = e.target.closest('.folder-item');
+                if (folderItem) {
+                    folderItem.classList.add('drag-over');
                 }
             });
 
             document.addEventListener('dragleave', e => {
-                if (e.target.closest('.folder-item')) {
-                    e.target.closest('.folder-item').classList.remove('drag-over');
+                const folderItem = e.target.closest('.folder-item');
+                if (folderItem && !folderItem.contains(e.relatedTarget)) {
+                    folderItem.classList.remove('drag-over');
                 }
             });
 
@@ -703,10 +807,9 @@
                 const targetFolderId = folderItem.dataset.folderId;
                 folderItem.classList.remove('drag-over');
 
-                if (draggedVideo) {
-                    // Video dropped on folder
+                if (draggedVideo && targetFolderId) {
                     const video = data.videos.find(v => v.id === draggedVideo);
-                    if (video && !['all','recent-added','recent-played'].includes(targetFolderId)) {
+                    if (video && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId)) {
                         if (!video.folders.includes(targetFolderId)) {
                             video.folders.push(targetFolderId);
                             save();
@@ -714,20 +817,22 @@
                             alert('Video added to folder!');
                         }
                     }
-                    draggedVideo = null;
-                } else if (draggedFolder) {
-                    // Folder dropped on folder (make it a child)
+                } else if (draggedFolder && targetFolderId) {
                     const folder = data.folders.find(f => f.id === draggedFolder);
-                    if (folder && !['all','recent-added','recent-played'].includes(targetFolderId) && draggedFolder !== targetFolderId) {
+                    if (folder && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId) && draggedFolder !== targetFolderId) {
                         folder.parent = targetFolderId;
                         save();
                         renderFolders();
                         alert('Folder moved!');
                     }
-                    draggedFolder = null;
                 }
             });
         }
+
+        // Load YouTube API for auto-advance
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
 
         window.addEventListener('DOMContentLoaded', init);
     </script>
