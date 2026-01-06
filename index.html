@@ -503,6 +503,7 @@
 
         function toggleFolder(id) {
             data.folderStates[id] = !data.folderStates[id];
+            console.log('Toggling folder:', id, 'to', data.folderStates[id]);
             save();
             renderFolders();
         }
@@ -512,8 +513,10 @@
                 const children = data.folders.filter(x => x.parent === f.id && !x.smart);
                 const cnt = getVideos(f.id).length;
                 const indent = lvl * 20;
-                const isExpanded = data.folderStates[f.id];
+                const isExpanded = data.folderStates[f.id] || false;
                 const hasChildren = children.length > 0;
+                
+                console.log('Rendering folder:', f.name, 'children:', children.length, 'videos:', cnt, 'expanded:', isExpanded);
                 
                 let html = `
                     <div class="folder-item ${currentFolder === f.id ? 'active' : ''}" 
@@ -532,19 +535,20 @@
                                 ` : ''}
                             </div>
                         </div>
-                        ${hasChildren ? `<div class="folder-children ${isExpanded ? 'expanded' : ''}"></div>` : ''}
                     </div>
                 `;
                 
                 if (hasChildren && isExpanded) {
                     const childrenHtml = children.map(c => renderF(c, lvl + 1)).join('');
-                    html = html.replace('</div></div>', `</div>${childrenHtml}</div></div>`);
+                    html = html.replace('</div></div>', `</div><div class="folder-children expanded">${childrenHtml}</div></div>`);
                 }
                 
                 return html;
             };
             const tree = document.getElementById('folderTree');
-            tree.innerHTML = data.folders.filter(f => !f.parent || f.smart).map(f => renderF(f)).join('');
+            const rootFolders = data.folders.filter(f => !f.parent || f.smart);
+            console.log('Root folders:', rootFolders.map(f => f.name));
+            tree.innerHTML = rootFolders.map(f => renderF(f)).join('');
         }
 
         function selectFolder(id) {
@@ -802,28 +806,42 @@
             document.addEventListener('drop', e => {
                 e.preventDefault();
                 const folderItem = e.target.closest('.folder-item');
-                if (!folderItem) return;
+                if (!folderItem) {
+                    console.log('No folder item found');
+                    return;
+                }
                 
                 const targetFolderId = folderItem.dataset.folderId;
+                console.log('Drop target folder:', targetFolderId);
                 folderItem.classList.remove('drag-over');
 
                 if (draggedVideo && targetFolderId) {
+                    console.log('Dragging video:', draggedVideo, 'to folder:', targetFolderId);
                     const video = data.videos.find(v => v.id === draggedVideo);
+                    console.log('Found video:', video);
+                    
                     if (video && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId)) {
                         if (!video.folders.includes(targetFolderId)) {
                             video.folders.push(targetFolderId);
+                            console.log('Added folder to video. Video folders now:', video.folders);
                             save();
+                            renderFolders();
                             renderVideos();
-                            alert('Video added to folder!');
+                            alert('✓ Video added to ' + data.folders.find(f => f.id === targetFolderId).name);
+                        } else {
+                            alert('Video already in this folder');
                         }
+                    } else if (['dashboard','all','recent-added','recent-played'].includes(targetFolderId)) {
+                        alert('Cannot add videos to smart folders');
                     }
                 } else if (draggedFolder && targetFolderId) {
+                    console.log('Dragging folder:', draggedFolder, 'to folder:', targetFolderId);
                     const folder = data.folders.find(f => f.id === draggedFolder);
                     if (folder && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId) && draggedFolder !== targetFolderId) {
                         folder.parent = targetFolderId;
                         save();
                         renderFolders();
-                        alert('Folder moved!');
+                        alert('✓ Folder moved!');
                     }
                 }
             });
