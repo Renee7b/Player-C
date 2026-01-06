@@ -430,12 +430,13 @@
                     <div class="folder-item ${currentFolder === f.id ? 'active' : ''}" 
                          draggable="${!f.smart}" 
                          data-folder-id="${f.id}"
-                         style="margin-left: ${indent}px">
-                        <div class="folder-header">
-                            <span class="folder-name" onclick="selectFolder('${f.id}')">
+                         style="margin-left: ${indent}px"
+                         onclick="selectFolder('${f.id}')">
+                        <div class="folder-header" onclick="event.stopPropagation();">
+                            <span class="folder-name" onclick="selectFolder('${f.id}')" style="cursor: pointer;">
                                 📁 ${f.name} (${cnt})
                             </span>
-                            <div class="folder-actions">
+                            <div class="folder-actions" onclick="event.stopPropagation();">
                                 <button class="btn-secondary btn-small" onclick="event.stopPropagation(); playFolder('${f.id}')">▶</button>
                                 ${!f.smart ? `
                                     <button class="btn-secondary btn-small" onclick="event.stopPropagation(); editFolder('${f.id}')">✏️</button>
@@ -473,7 +474,7 @@
                         <div class="video-card-body">
                             <div class="video-card-title">${v.title}</div>
                             <div class="video-folders">📁 ${fnames || 'No folder'}</div>
-                            <div class="video-notes">${v.notes || ''}</div>
+                            ${v.notes ? `<div class="video-notes">📝 ${v.notes}</div>` : '<div class="video-notes" style="color: #666;">No notes</div>'}
                             <div class="video-card-actions">
                                 <button onclick="playVideo('${v.id}')">Play</button>
                                 <button onclick="openVideoFolders('${v.id}')" class="btn-secondary">Folders</button>
@@ -566,30 +567,48 @@
                     const imported = JSON.parse(ev.target.result);
                     console.log('Imported data:', imported);
                     
+                    let importedFolders = 0;
+                    let importedVideos = 0;
+                    
                     // Handle folder format with id/parentId structure
                     if (imported.folders && Array.isArray(imported.folders)) {
                         // Convert old format to new format
                         data.folders = imported.folders
                             .filter(f => !f.isSeparator)
-                            .map(f => ({
-                                id: 'f-' + f.id,
-                                name: f.name,
-                                parent: f.parentId ? 'f-' + f.parentId : null,
-                                smart: false
-                            }));
+                            .map(f => {
+                                const newFolder = {
+                                    id: f.id.toString().startsWith('f-') ? f.id.toString() : 'f-' + f.id,
+                                    name: f.name,
+                                    parent: f.parentId ? (f.parentId.toString().startsWith('f-') ? f.parentId.toString() : 'f-' + f.parentId) : null,
+                                    smart: false
+                                };
+                                importedFolders++;
+                                return newFolder;
+                            });
                     }
                     
                     // Handle videos
                     if (imported.videos && Array.isArray(imported.videos)) {
                         data.videos = imported.videos.map(v => {
-                            // Convert folderId to folders array
+                            // Handle folders array
                             let folders = [];
-                            if (v.folderId) {
-                                folders = ['f-' + v.folderId];
-                            } else if (v.folders && Array.isArray(v.folders)) {
-                                folders = v.folders.map(fid => typeof fid === 'number' ? 'f-' + fid : fid);
+                            if (v.folders && Array.isArray(v.folders)) {
+                                // Keep folders as-is if already in correct format
+                                folders = v.folders.map(fid => {
+                                    if (typeof fid === 'string' && fid.startsWith('f-')) {
+                                        return fid;
+                                    } else if (typeof fid === 'number' || !fid.startsWith('f-')) {
+                                        return 'f-' + fid;
+                                    }
+                                    return fid;
+                                });
+                            } else if (v.folderId) {
+                                // Convert single folderId to array
+                                const fid = v.folderId.toString().startsWith('f-') ? v.folderId.toString() : 'f-' + v.folderId;
+                                folders = [fid];
                             }
                             
+                            importedVideos++;
                             return {
                                 id: v.id ? v.id.toString() : Date.now().toString() + Math.random(),
                                 url: v.url || v.videoUrl || '',
@@ -605,25 +624,36 @@
                         });
                     } else if (Array.isArray(imported)) {
                         // Handle array of videos
-                        data.videos = imported.map(v => ({
-                            id: v.id ? v.id.toString() : Date.now().toString() + Math.random(),
-                            url: v.url || '',
-                            type: v.type || 'youtube',
-                            videoId: v.videoId || '',
-                            title: v.title || 'Untitled',
-                            thumbnail: v.thumbnail || '',
-                            notes: v.notes || '',
-                            folders: [],
-                            dateAdded: v.dateAdded || new Date().toISOString(),
-                            lastPlayed: null
-                        }));
+                        data.videos = imported.map(v => {
+                            importedVideos++;
+                            return {
+                                id: v.id ? v.id.toString() : Date.now().toString() + Math.random(),
+                                url: v.url || '',
+                                type: v.type || 'youtube',
+                                videoId: v.videoId || '',
+                                title: v.title || 'Untitled',
+                                thumbnail: v.thumbnail || '',
+                                notes: v.notes || '',
+                                folders: v.folders || [],
+                                dateAdded: v.dateAdded || new Date().toISOString(),
+                                lastPlayed: null
+                            };
+                        });
                     }
+                    
+                    console.log('Import complete:', {
+                        folders: data.folders,
+                        videos: data.videos,
+                        folderCount: importedFolders,
+                        videoCount: importedVideos
+                    });
                     
                     save();
                     createSmartFolders();
                     renderFolders();
                     renderVideos();
-                    alert('Imported successfully! Found ' + data.videos.length + ' videos and ' + data.folders.filter(f => !f.smart).length + ' folders.');
+                    
+                    alert(`Import successful!\n${importedVideos} videos\n${importedFolders} folders\n\nClick on a folder in the sidebar to see its videos.`);
                 } catch (err) {
                     console.error('Import error:', err);
                     alert('Import failed: ' + err.message);
