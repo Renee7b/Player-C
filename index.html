@@ -503,9 +503,20 @@
 
         function toggleFolder(id) {
             data.folderStates[id] = !data.folderStates[id];
-            console.log('Toggling folder:', id, 'to', data.folderStates[id]);
             save();
             renderFolders();
+        }
+
+        function showNotification(message) {
+            const notif = document.createElement('div');
+            notif.textContent = message;
+            notif.style.cssText = 'position: fixed; top: 20px; right: 20px; background: rgba(79,70,229,0.95); color: white; padding: 15px 25px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.3);';
+            document.body.appendChild(notif);
+            setTimeout(() => {
+                notif.style.transition = 'opacity 0.3s';
+                notif.style.opacity = '0';
+                setTimeout(() => notif.remove(), 300);
+            }, 2000);
         }
 
         function renderFolders() {
@@ -515,8 +526,6 @@
                 const indent = lvl * 20;
                 const isExpanded = data.folderStates[f.id] || false;
                 const hasChildren = children.length > 0;
-                
-                console.log('Rendering folder:', f.name, 'children:', children.length, 'videos:', cnt, 'expanded:', isExpanded);
                 
                 let html = `
                     <div class="folder-item ${currentFolder === f.id ? 'active' : ''}" 
@@ -535,19 +544,19 @@
                                 ` : ''}
                             </div>
                         </div>
-                    </div>
                 `;
                 
-                if (hasChildren && isExpanded) {
+                if (hasChildren) {
                     const childrenHtml = children.map(c => renderF(c, lvl + 1)).join('');
-                    html = html.replace('</div></div>', `</div><div class="folder-children expanded">${childrenHtml}</div></div>`);
+                    html += `<div class="folder-children ${isExpanded ? 'expanded' : ''}">${childrenHtml}</div>`;
                 }
                 
+                html += `</div>`;
                 return html;
             };
+            
             const tree = document.getElementById('folderTree');
-            const rootFolders = data.folders.filter(f => !f.parent || f.smart);
-            console.log('Root folders:', rootFolders.map(f => f.name));
+            const rootFolders = data.folders.filter(f => (!f.parent || f.parent === null) || f.smart);
             tree.innerHTML = rootFolders.map(f => renderF(f)).join('');
         }
 
@@ -805,45 +814,49 @@
 
             document.addEventListener('drop', e => {
                 e.preventDefault();
+                e.stopPropagation();
+                
                 const folderItem = e.target.closest('.folder-item');
-                if (!folderItem) {
-                    console.log('No folder item found');
-                    return;
-                }
+                if (!folderItem) return;
                 
                 const targetFolderId = folderItem.dataset.folderId;
-                console.log('Drop target folder:', targetFolderId);
                 folderItem.classList.remove('drag-over');
 
                 if (draggedVideo && targetFolderId) {
-                    console.log('Dragging video:', draggedVideo, 'to folder:', targetFolderId);
                     const video = data.videos.find(v => v.id === draggedVideo);
-                    console.log('Found video:', video);
                     
                     if (video && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId)) {
                         if (!video.folders.includes(targetFolderId)) {
                             video.folders.push(targetFolderId);
-                            console.log('Added folder to video. Video folders now:', video.folders);
                             save();
-                            renderFolders();
-                            renderVideos();
-                            alert('✓ Video added to ' + data.folders.find(f => f.id === targetFolderId).name);
+                            
+                            // Use setTimeout to ensure save completes before rendering
+                            setTimeout(() => {
+                                renderFolders();
+                                renderVideos();
+                                const folderName = data.folders.find(f => f.id === targetFolderId)?.name || 'folder';
+                                showNotification(`✓ Video added to ${folderName}`);
+                            }, 100);
                         } else {
-                            alert('Video already in this folder');
+                            showNotification('Video already in this folder');
                         }
                     } else if (['dashboard','all','recent-added','recent-played'].includes(targetFolderId)) {
-                        alert('Cannot add videos to smart folders');
+                        showNotification('Cannot add videos to smart folders');
                     }
                 } else if (draggedFolder && targetFolderId) {
-                    console.log('Dragging folder:', draggedFolder, 'to folder:', targetFolderId);
                     const folder = data.folders.find(f => f.id === draggedFolder);
                     if (folder && !['dashboard','all','recent-added','recent-played'].includes(targetFolderId) && draggedFolder !== targetFolderId) {
                         folder.parent = targetFolderId;
                         save();
-                        renderFolders();
-                        alert('✓ Folder moved!');
+                        setTimeout(() => {
+                            renderFolders();
+                            showNotification('✓ Folder moved!');
+                        }, 100);
                     }
                 }
+                
+                draggedVideo = null;
+                draggedFolder = null;
             });
         }
 
