@@ -82,7 +82,14 @@
         .video-wrapper .video-resume-badge {
             display: none !important;
         }
-        .video-title { font-size: 1.5em; margin: 10px 0; padding: 8px; }
+        .video-title { 
+            font-size: 1.5em; 
+            margin: 10px 0; 
+            padding: 8px;
+        }
+        .video-info {
+            margin-top: 0;
+        }
         textarea {
             width: 100%;
             min-height: 80px;
@@ -297,14 +304,16 @@
 
         <div class="player-section" id="playerSection" style="display: none;">
             <div class="video-wrapper" id="videoWrapper"></div>
-            <div class="video-title" id="videoTitle"></div>
-            <textarea id="videoNotes" placeholder="Add notes..." onchange="saveCurrentNotes()"></textarea>
-            <div class="playlist-controls">
-                <button onclick="prevVideo()">⏮ Prev</button>
-                <button onclick="nextVideo()">Next ⏭</button>
-                <button onclick="stopPlaylist()" class="btn-danger">⏹ Stop</button>
-                <button onclick="toggleShuffle()" class="btn-secondary" id="shuffleBtn">🔀 Shuffle</button>
-                <span id="playlistInfo" style="color: #9ca3af; font-size: 14px;"></span>
+            <div class="video-info">
+                <div class="video-title" id="videoTitle"></div>
+                <textarea id="videoNotes" placeholder="Add notes..." onchange="saveCurrentNotes()"></textarea>
+                <div class="playlist-controls">
+                    <button onclick="prevVideo()">⏮ Prev</button>
+                    <button onclick="nextVideo()">Next ⏭</button>
+                    <button onclick="stopPlaylist()" class="btn-danger">⏹ Stop</button>
+                    <button onclick="toggleShuffle()" class="btn-secondary" id="shuffleBtn">🔀 Shuffle</button>
+                    <span id="playlistInfo" style="color: #9ca3af; font-size: 14px;"></span>
+                </div>
             </div>
         </div>
 
