@@ -187,10 +187,26 @@
             font-weight: 600;
             line-height: 1.3;
         }
-        .video-thumbnail-container {
-            position: relative;
-            width: 100%;
-            height: 160px;
+        .video-progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: #4f46e5;
+            transition: width 0.3s;
+            z-index: 1;
+        }
+        .video-resume-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(79, 70, 229, 0.9);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 2;
         }
         .video-grid { 
             display: grid;
@@ -404,7 +420,9 @@
                 folders: currentFolder && !['dashboard','all','recent-added','recent-played'].includes(currentFolder) ? [currentFolder] : [],
                 dateAdded: new Date().toISOString(),
                 lastPlayed: null,
-                sortOrder: data.videos.length
+                sortOrder: data.videos.length,
+                lastPosition: 0,
+                duration: 0
             };
             data.videos.push(v);
             save();
@@ -418,7 +436,6 @@
             if (!v) return;
             v.lastPlayed = new Date().toISOString();
             currentVideo = v;
-            save();
 
             document.getElementById('playerSection').style.display = 'block';
             const w = document.getElementById('videoWrapper');
@@ -429,24 +446,67 @@
                 }
             };
 
+            const saveProgress = () => {
+                if (!currentVideo) return;
+                const videoEl = document.querySelector('video');
+                if (videoEl && !isNaN(videoEl.currentTime) && !isNaN(videoEl.duration)) {
+                    currentVideo.lastPosition = videoEl.currentTime;
+                    currentVideo.duration = videoEl.duration;
+                    save();
+                }
+            };
+
+            // Set up periodic progress saving
+            if (window.progressInterval) clearInterval(window.progressInterval);
+
             if (v.type === 'youtube') {
-                w.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&enablejsapi=1" allow="autoplay" allowfullscreen id="ytPlayer"></iframe>`;
-                // YouTube API for auto-advance
-                if (window.YT && fromPlaylist) {
+                const startTime = v.lastPosition || 0;
+                w.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&start=${Math.floor(startTime)}&enablejsapi=1" allow="autoplay" allowfullscreen id="ytPlayer"></iframe>`;
+                
+                // YouTube progress tracking
+                if (window.YT) {
                     setTimeout(() => {
                         const player = new YT.Player('ytPlayer', {
-                            events: { 'onStateChange': (e) => { if (e.data === YT.PlayerState.ENDED) onVideoEnd(); }}
+                            events: {
+                                'onStateChange': (e) => {
+                                    if (e.data === YT.PlayerState.ENDED) onVideoEnd();
+                                },
+                                'onReady': () => {
+                                    window.progressInterval = setInterval(() => {
+                                        if (currentVideo && player.getCurrentTime) {
+                                            try {
+                                                currentVideo.lastPosition = player.getCurrentTime();
+                                                currentVideo.duration = player.getDuration();
+                                                save();
+                                            } catch (e) {}
+                                        }
+                                    }, 5000);
+                                }
+                            }
                         });
                     }, 1000);
                 }
             } else if (v.type === 'vimeo') {
-                w.innerHTML = `<iframe src="https://player.vimeo.com/video/${v.videoId}?autoplay=1" allow="autoplay" allowfullscreen></iframe>`;
+                const startTime = v.lastPosition || 0;
+                w.innerHTML = `<iframe src="https://player.vimeo.com/video/${v.videoId}?autoplay=1${startTime > 0 ? '#t=' + Math.floor(startTime) + 's' : ''}" allow="autoplay" allowfullscreen></iframe>`;
             } else if (v.type === 'dailymotion') {
-                w.innerHTML = `<iframe src="https://www.dailymotion.com/embed/video/${v.videoId}?autoplay=1" allow="autoplay" allowfullscreen></iframe>`;
+                const startTime = v.lastPosition || 0;
+                w.innerHTML = `<iframe src="https://www.dailymotion.com/embed/video/${v.videoId}?autoplay=1&start=${Math.floor(startTime)}" allow="autoplay" allowfullscreen></iframe>`;
             } else {
-                w.innerHTML = `<video src="${v.url}" controls autoplay onended="nextVideo()"></video>`;
+                w.innerHTML = `<video src="${v.url}" controls autoplay onended="nextVideo()" id="directVideo"></video>`;
+                setTimeout(() => {
+                    const videoEl = document.getElementById('directVideo');
+                    if (videoEl && v.lastPosition > 0) {
+                        videoEl.currentTime = v.lastPosition;
+                    }
+                    if (videoEl) {
+                        videoEl.addEventListener('timeupdate', saveProgress);
+                        videoEl.addEventListener('pause', saveProgress);
+                    }
+                }, 100);
             }
             
+            save();
             document.getElementById('videoTitle').textContent = v.title;
             document.getElementById('videoNotes').value = v.notes || '';
             if (fromPlaylist) updatePlaylistInfo();
@@ -650,10 +710,17 @@
             
             grid.innerHTML = vids.map(v => {
                 const fnames = v.folders.map(fid => data.folders.find(f => f.id === fid)).filter(Boolean).map(f => f.name).join(', ');
+                const progress = v.duration > 0 ? (v.lastPosition / v.duration) * 100 : 0;
+                const hasProgress = progress > 5 && progress < 95;
+                
                 return `
                     <div class="video-card" draggable="true" data-video-id="${v.id}">
                         <div class="video-thumbnail-container">
                             <img src="${v.thumbnail}" class="video-thumbnail" onclick="playVideo('${v.id}')">
+                            ${hasProgress ? `
+                                <div class="video-progress-bar" style="width: ${progress}%"></div>
+                                <div class="video-resume-badge">${Math.floor(progress)}%</div>
+                            ` : ''}
                             <div class="video-card-title-bottom">${v.title}</div>
                         </div>
                         <div class="video-card-body">
